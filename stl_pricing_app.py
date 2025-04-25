@@ -1,62 +1,62 @@
-
 import streamlit as st
 import trimesh
 import tempfile
 import os
 
-# Malzeme fiyat bilgileri
-MATERIAL_PRICES = {
-    "PLA": 4000  # TL / kg
-}
-
+# Malzeme yoğunlukları (g/cm³)
 DENSITY = {
-    "PLA": 1.24  # g/cm³
+    "PLA": 1.24,
+    "PETG": 1.27,
+    "ABS": 1.04,
 }
 
-st.set_page_config(page_title="3D Baskı Fiyat Hesaplayıcı", page_icon="🧮")
+# Kullanıcı arayüzü
+st.title("3D Baskı Fiyat Tahmini")
 
-st.title("📦 STL Dosyası ile 3D Baskı Fiyat Hesaplayıcı")
-st.write("Lütfen STL dosyanızı yükleyin, ardından tahmini fiyat bilgisini öğrenin.")
+uploaded_file = st.file_uploader("STL Dosyanızı Yükleyin", type=["stl"])
 
-with st.form("upload_form"):
-    uploaded_file = st.file_uploader("STL Dosyasını Yükle (.stl formatı)", type=["stl"])
-    material = st.selectbox("Malzeme Türü", list(MATERIAL_PRICES.keys()))
-    name = st.text_input("İsim Soyisim")
-    email = st.text_input("E-posta")
-    address = st.text_area("Adres")
+if uploaded_file is not None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".stl") as tmp_file:
+        tmp_file.write(uploaded_file.read())
+        tmp_file_path = tmp_file.name
 
-    submitted = st.form_submit_button("Fiyatı Hesapla")
+    try:
+        mesh = trimesh.load_mesh(tmp_file_path)
+        volume_cm3 = mesh.volume / 1000  # mm³ to cm³
+        st.success(f"Model Hacmi: {volume_cm3:.2f} cm³")
 
-if submitted:
-    if uploaded_file is not None:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".stl") as tmp:
-            tmp.write(uploaded_file.read())
-            tmp_path = tmp.name
+        # Kullanıcıdan ek bilgiler al
+        infill_percent = st.slider("Infill (%)", 1, 100, 20)
+        needs_support = st.selectbox("Destek Gerekli mi?", ["Hayır", "Evet"])
+        layer_height = st.selectbox("Katman Yüksekliği (mm)", ["0.1", "0.2", "0.3"])
+        nozzle = st.selectbox("Nozzle Çapı", ["0.4", "0.6", "0.8"])
+        material = st.selectbox("Malzeme", list(DENSITY.keys()))
 
-        mesh = trimesh.load(tmp_path)
-        os.remove(tmp_path)
+        # Etkin yoğunluk ve destek çarpanı
+        effective_density = DENSITY[material] * (infill_percent / 100)
+        support_multiplier = 1.2 if needs_support == "Evet" else 1.0
 
-        # STL dosyaları genelde mm³ birimindedir. cm³'e çevirmek için 1000'e böl.
-        volume_mm3 = mesh.volume
-        volume_cm3 = volume_mm3 / 1000
+        # Hesaplamalar
+        weight_g = volume_cm3 * effective_density * support_multiplier
+        price_per_kg = 4000  # TL
+        cost = weight_g * (price_per_kg / 1000)
 
-        density = DENSITY[material]
-        weight_g = volume_cm3 * density
-        weight_kg = weight_g / 1000
+        st.write(f"Tahmini Ağırlık: {weight_g:.2f} gram")
+        st.write(f"Tahmini Fiyat: {cost:.2f} TL")
 
-        price_per_kg = MATERIAL_PRICES[material]
-        estimated_price = weight_kg * price_per_kg
-
-        st.success("🎉 Fiyatlandırma Tamamlandı!")
-        st.markdown(f"**Tahmini Hacim:** {volume_cm3:.2f} cm³")
-        st.markdown(f"**Tahmini Ağırlık ({material}):** {weight_g:.2f} gram")
-        st.markdown(f"**Tahmini Fiyat:** {estimated_price:.2f} TL")
-
+        # Sipariş formu
         st.markdown("---")
-        st.markdown("📝 Sipariş Bilgileri:")
-        st.markdown(f"**İsim:** {name}")
-        st.markdown(f"**E-posta:** {email}")
-        st.markdown(f"**Adres:** {address}")
-    else:
-        st.warning("Lütfen geçerli bir STL dosyası yükleyin.")
+        st.subheader("Sipariş Bilgileri")
+        name = st.text_input("İsim")
+        email = st.text_input("E-posta")
+        address = st.text_area("Adres")
 
+        if st.button("Siparişi Gönder"):
+            st.success("Siparişiniz başarıyla alındı! Size en kısa sürede dönüş yapılacaktır.")
+
+    except Exception as e:
+        st.error("Dosya okunurken bir hata oluştu. Lütfen geçerli bir STL dosyası yükleyin.")
+    finally:
+        os.remove(tmp_file_path)
+else:
+    st.info("Lütfen bir STL dosyası yükleyin.")
